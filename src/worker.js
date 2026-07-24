@@ -213,6 +213,13 @@ async function initializeDatabase(env) {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS media_files (
+      filename TEXT PRIMARY KEY,
+      mime_type TEXT NOT NULL,
+      data TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   const ITERATIONS = 80000;
@@ -494,12 +501,19 @@ async function handleExport(env) {
     });
 
     const adminRow = await queryFirst(env, 'SELECT password_hash FROM admin WHERE id = ?', [1]);
+
+    const mediaRows = await queryAll(env, 'SELECT filename, mime_type, data FROM media_files');
+    const mediaFiles = {};
+    for (const row of mediaRows) {
+      mediaFiles[row.filename] = { mimeType: row.mime_type, base64: row.data };
+    }
+
     const exportData = {
       version: '2.0',
       exportedAt: new Date().toISOString(),
       steps,
       settings,
-      mediaFiles: {},
+      mediaFiles,
       adminPasswordHash: adminRow ? adminRow.password_hash : ''
     };
 
@@ -576,6 +590,18 @@ async function handleImportZip(env, request) {
         'UPDATE admin SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1',
         [backupData.adminPasswordHash]
       );
+    }
+
+    if (backupData.mediaFiles && typeof backupData.mediaFiles === 'object') {
+      for (const [filename, media] of Object.entries(backupData.mediaFiles)) {
+        if (media && media.base64) {
+          await execute(
+            env,
+            'INSERT INTO media_files (filename, mime_type, data) VALUES (?, ?, ?) ON CONFLICT(filename) DO UPDATE SET mime_type = excluded.mime_type, data = excluded.data',
+            [filename, media.mimeType || 'application/octet-stream', media.base64]
+          );
+        }
+      }
     }
 
     const mediaCount = backupData.mediaFiles ? Object.keys(backupData.mediaFiles).length : 0;
@@ -863,6 +889,17 @@ async function routeApi(env, request, pathname) {
     const auth = await requireAdmin(request, env);
     if (!auth.ok) return auth.response;
     return handleClearAll(env);
+  }
+
+  if (pathname.startsWith('/api/media/') && request.method === 'GET') {
+    const filename = decodeURIComponent(pathname.slice('/api/media/'.length));
+    if (!filename) return errorResponse('Missing filename', 400);
+    const row = await queryFirst(env, 'SELECT mime_type, data FROM media_files WHERE filename = ?', [filename]);
+    if (!row) return errorResponse('Media not found', 404);
+    const bytes = new TextEncoder().encode(row.data);
+    return new Response(bytes, {
+      headers: { 'Content-Type': row.mime_type, 'Cache-Control': 'public, max-age=3600' }
+    });
   }
 
   return null;
