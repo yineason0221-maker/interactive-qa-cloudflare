@@ -500,6 +500,8 @@ async function handleUploadMedia(env, request) {
   if (!auth.ok) return auth.response;
 
   try {
+    await env.DB.exec(`CREATE TABLE IF NOT EXISTS media_files (filename TEXT PRIMARY KEY, mime_type TEXT NOT NULL, data TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+
     const formData = await request.formData();
     const file = formData.get('file');
     if (!file || typeof file.arrayBuffer !== 'function') {

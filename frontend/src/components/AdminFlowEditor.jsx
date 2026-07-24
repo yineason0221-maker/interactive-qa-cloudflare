@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, ArrowUp, ArrowDown, Save, Film, Sparkles, MessageSquare, Type, Volume2 } from 'lucide-react';
+import { Plus, Trash2, ArrowUp, ArrowDown, Save, Film, Sparkles, MessageSquare, Type, Volume2, Upload } from 'lucide-react';
 
 export default function AdminFlowEditor({ token, steps: initialSteps, onSaveSuccess }) {
   const [steps, setSteps] = useState([]);
@@ -577,6 +577,49 @@ export default function AdminFlowEditor({ token, steps: initialSteps, onSaveSucc
                       className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-white"
                     />
                   </div>
+
+                  <div>
+                    <label className="text-xs font-mono text-zinc-400 block mb-1">音效 URL (選填)</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="e.g. /api/media/effect.mp3 或外部連結"
+                        value={activeStep.content.soundEffect || ''}
+                        onChange={(e) => updateActiveContent({ soundEffect: e.target.value })}
+                        className="flex-1 bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-white"
+                      />
+                      <label className="px-3 py-2 bg-purple-900/60 hover:bg-purple-800 text-purple-200 border border-purple-700/60 text-xs font-mono rounded-xl flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap">
+                        <Upload className="w-3.5 h-3.5" /> 上傳音效
+                        <input
+                          type="file"
+                          accept="audio/*"
+                          className="hidden"
+                          onChange={async (e) => {
+                            const file = e.target.files[0];
+                            if (!file) return;
+                            const formData = new FormData();
+                            formData.append('file', file);
+                            try {
+                              const res = await fetch('/api/admin/media', {
+                                method: 'POST',
+                                headers: { Authorization: `Bearer ${token}` },
+                                body: formData
+                              });
+                              const result = await res.json();
+                              if (result.success) {
+                                updateActiveContent({ soundEffect: result.media.url });
+                              } else {
+                                alert(result.error || '上傳失敗');
+                              }
+                            } catch {
+                              alert('無法上傳');
+                            }
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -585,15 +628,47 @@ export default function AdminFlowEditor({ token, steps: initialSteps, onSaveSucc
                 <div className="space-y-4">
                   <div>
                     <label className="text-xs font-mono text-zinc-400 block mb-1">影片 URL 網址 (MP4)</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. /uploads/video.mp4 或外部連結"
-                      value={activeStep.content.videoUrl || ''}
-                      onChange={(e) => updateActiveContent({ videoUrl: e.target.value })}
-                      className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-white"
-                    />
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="e.g. /api/media/video.mp4 或外部連結"
+                        value={activeStep.content.videoUrl || ''}
+                        onChange={(e) => updateActiveContent({ videoUrl: e.target.value })}
+                        className="flex-1 bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-white"
+                      />
+                      <label className="px-3 py-2 bg-purple-900/60 hover:bg-purple-800 text-purple-200 border border-purple-700/60 text-xs font-mono rounded-xl flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap">
+                        <Upload className="w-3.5 h-3.5" /> 上傳影片
+                        <input
+                          type="file"
+                          accept="video/*"
+                          className="hidden"
+                          onChange={async (e) => {
+                            const file = e.target.files[0];
+                            if (!file) return;
+                            const formData = new FormData();
+                            formData.append('file', file);
+                            try {
+                              const res = await fetch('/api/admin/media', {
+                                method: 'POST',
+                                headers: { Authorization: `Bearer ${token}` },
+                                body: formData
+                              });
+                              const result = await res.json();
+                              if (result.success) {
+                                updateActiveContent({ videoUrl: result.media.url });
+                              } else {
+                                alert(result.error || '上傳失敗');
+                              }
+                            } catch {
+                              alert('無法上傳');
+                            }
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+                    </div>
                     <p className="text-[10px] text-zinc-500 mt-1 font-mono">
-                      可將檔案上傳至後台媒體庫後使用 /api/media/影片檔名.mp4，或直接貼外部連結。
+                      可點擊「上傳影片」直接上傳，或輸入外部連結。
                     </p>
                   </div>
 

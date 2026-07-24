@@ -205,10 +205,6 @@ export default function AdminSettings({ token, settings, onSettingsUpdated }) {
           <ExportButton token={token} onImported={onSettingsUpdated} />
           <ImportButton token={token} onImported={onSettingsUpdated} />
         </div>
-
-        <div className="mt-6">
-          <MediaManager token={token} />
-        </div>
       </div>
 
       {/* Password Management */}
@@ -335,103 +331,4 @@ function ImportButton({ token, onImported }) {
   );
 }
 
-function MediaManager({ token }) {
-  const [mediaList, setMediaList] = useState([]);
-  const [uploading, setUploading] = useState(false);
-
-  const fetchMedia = async () => {
-    try {
-      const res = await fetch('/api/admin/media', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const data = await res.json();
-      if (data.success) setMediaList(data.media || []);
-    } catch {}
-  };
-
-  useEffect(() => {
-    fetchMedia();
-  }, [token]);
-
-  const handleUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      const res = await fetch('/api/admin/media', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData
-      });
-      const result = await res.json();
-      if (result.success) {
-        alert(`上傳成功：${result.media.filename}`);
-        fetchMedia();
-      } else {
-        alert(result.error || '上傳失敗');
-      }
-    } catch {
-      alert('無法上傳檔案');
-    }
-    setUploading(false);
-    e.target.value = '';
-  };
-
-  const handleDelete = async (filename) => {
-    if (!confirm(`刪除 ${filename}？`)) return;
-    try {
-      const res = await fetch(`/api/admin/media/${encodeURIComponent(filename)}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const result = await res.json();
-      if (result.success) {
-        fetchMedia();
-      } else {
-        alert(result.error || '刪除失敗');
-      }
-    } catch {
-      alert('無法刪除檔案');
-    }
-  };
-
-  const formatSize = (bytes) => {
-    if (!bytes) return '0 KB';
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-mono text-green-300">媒體檔案庫</h3>
-        <label className="px-3 py-1.5 bg-purple-900/60 hover:bg-purple-800 text-purple-200 border border-purple-700/60 text-xs font-mono rounded-xl flex items-center gap-2 transition-colors cursor-pointer">
-          <Upload className="w-3.5 h-3.5" /> {uploading ? '上傳中...' : '上傳音訊/影片'}
-          <input type="file" accept="audio/*,video/*" onChange={handleUpload} className="hidden" disabled={uploading} />
-        </label>
-      </div>
-
-      {mediaList.length === 0 ? (
-        <p className="text-xs text-gray-500">尚未有任何媒體檔案。支援 mp3, mp4, wav, ogg, webm 等格式。</p>
-      ) : (
-        <div className="space-y-2 max-h-64 overflow-y-auto">
-          {mediaList.map((media) => (
-            <div key={media.filename} className="flex items-center justify-between bg-black/30 rounded-lg px-3 py-2">
-              <div className="flex-1 min-w-0">
-                <p className="text-xs text-gray-200 truncate">{media.filename}</p>
-                <p className="text-xs text-gray-500">{media.mimeType} · {formatSize(media.size)}</p>
-              </div>
-              <div className="flex items-center gap-2 ml-3">
-                <a href={media.url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-400 hover:text-blue-300">預覽</a>
-                <button onClick={() => handleDelete(media.filename)} className="text-xs text-red-400 hover:text-red-300">刪除</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+export default AdminSettings;
