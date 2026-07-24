@@ -158,11 +158,19 @@ async function initializeDatabase(env) {
     );
   `);
 
-  const adminRow = await queryFirst(env, 'SELECT id FROM admin WHERE id = ?', [1]);
+  const ITERATIONS = 80000;
+  const adminRow = await queryFirst(env, 'SELECT id, password_hash FROM admin WHERE id = ?', [1]);
+  const defaultPassword = env.ADMIN_PASSWORD || DEFAULT_ADMIN_PASSWORD;
+  const newHash = crypto.pbkdf2Sync(defaultPassword, 'admin-salt', ITERATIONS, 32, 'sha256').toString('hex');
   if (!adminRow) {
-    const defaultPassword = env.ADMIN_PASSWORD || DEFAULT_ADMIN_PASSWORD;
-    const defaultHash = crypto.pbkdf2Sync(defaultPassword, 'admin-salt', 120000, 32, 'sha256').toString('hex');
-    await execute(env, 'INSERT INTO admin (id, password_hash) VALUES (?, ?)', [1, `pbkdf2$120000$admin-salt$${defaultHash}`]);
+    await execute(env, 'INSERT INTO admin (id, password_hash) VALUES (?, ?)', [1, `pbkdf2$${ITERATIONS}$admin-salt$${newHash}`]);
+    console.log('[DB] Created admin with', ITERATIONS, 'iterations');
+  } else {
+    const parsed = parseStoredPasswordHash(adminRow.password_hash);
+    if (!parsed || parsed.iterations !== ITERATIONS) {
+      await execute(env, 'UPDATE admin SET password_hash = ? WHERE id = 1', [`pbkdf2$${ITERATIONS}$admin-salt$${newHash}`]);
+      console.log('[DB] Migrated admin hash from', parsed ? parsed.iterations : 'unknown', 'to', ITERATIONS, 'iterations');
+    }
   }
 
   const stepCountRow = await queryFirst(env, 'SELECT COUNT(*) AS count FROM steps');
@@ -190,7 +198,7 @@ function parseStoredPasswordHash(stored) {
   if (stored.startsWith('pbkdf2$')) {
     const [, iterationsText, salt, hashHex] = stored.split('$');
     return {
-      iterations: Number(iterationsText || 120000),
+      iterations: Number(iterationsText || 80000),
       salt,
       hashHex
     };
@@ -198,7 +206,7 @@ function parseStoredPasswordHash(stored) {
   return null;
 }
 
-function hashPassword(password, salt = 'admin-salt', iterations = 120000) {
+function hashPassword(password, salt = 'admin-salt', iterations = 80000) {
   const hashHex = crypto.pbkdf2Sync(password, salt, iterations, 32, 'sha256').toString('hex');
   return `pbkdf2$${iterations}$${salt}$${hashHex}`;
 }
@@ -287,7 +295,7 @@ async function handleChangePassword(env, request) {
     return errorResponse('舊密碼不正確', 400);
   }
 
-  const newHash = hashPassword(newPassword, crypto.randomBytes(16).toString('hex'), 120000);
+    const newHash = hashPassword(newPassword, crypto.randomBytes(16).toString('hex'), 80000);
   await execute(
     env,
     'UPDATE admin SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1',
