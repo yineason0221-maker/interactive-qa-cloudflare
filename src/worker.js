@@ -141,7 +141,7 @@ function decryptField(env, encryptedText) {
 async function queryAll(env, sql, params = []) {
   const stmt = env.DB.prepare(sql);
   const bound = params.length ? stmt.bind(...params) : stmt;
-  const result = await bound.run();
+  const result = await bound.all();
   return result.results || [];
 }
 
@@ -221,29 +221,17 @@ async function initializeDatabase(env) {
   `);
 
   const ITERATIONS = 80000;
-  let adminRow = null;
-  try {
-    adminRow = await queryFirst(env, 'SELECT id, password_hash FROM admin WHERE id = ?', [1]);
-  } catch (e) {
-    console.error('[Init] Admin query failed, creating table:', e.message);
-  }
-
+  const adminRow = await queryFirst(env, 'SELECT id, password_hash FROM admin WHERE id = ?', [1]);
   const defaultPassword = env.ADMIN_PASSWORD || DEFAULT_ADMIN_PASSWORD;
   const newHash = crypto.pbkdf2Sync(defaultPassword, 'admin-salt', ITERATIONS, 32, 'sha256').toString('hex');
-
   if (!adminRow) {
-    try {
-      await execute(env, 'INSERT OR REPLACE INTO admin (id, password_hash, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)', [1, `pbkdf2$${ITERATIONS}$admin-salt$${newHash}`]);
-      console.log('[DB] Created admin with', ITERATIONS, 'iterations');
-    } catch (e) {
-      console.error('[Init] Failed to insert admin:', e.message);
-      throw e;
-    }
+    await env.DB.prepare('INSERT INTO admin (password_hash) VALUES (?)').bind(`pbkdf2$${ITERATIONS}$admin-salt$${newHash}`).run();
+    console.log('[DB] Created admin with', ITERATIONS, 'iterations');
   } else {
     const parsed = parseStoredPasswordHash(adminRow.password_hash);
     if (!parsed || parsed.iterations !== ITERATIONS) {
-      await execute(env, 'UPDATE admin SET password_hash = ? WHERE id = 1', [`pbkdf2$${ITERATIONS}$admin-salt$${newHash}`]);
-      console.log('[DB] Migrated admin hash from', parsed ? parsed.iterations : 'unknown', 'to', ITERATIONS, 'iterations');
+      await env.DB.prepare('UPDATE admin SET password_hash = ? WHERE id = 1').bind(`pbkdf2$${ITERATIONS}$admin-salt$${newHash}`).run();
+      console.log('[DB] Migrated admin hash');
     }
   }
 
