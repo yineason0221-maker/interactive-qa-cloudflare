@@ -1,0 +1,15 @@
+﻿services:
+  - type: web
+    name: interactive-qa-app
+    env: node
+    buildCommand: cd backend && npm install && cd ../frontend && npm install && npm run build
+    startCommand: cd backend && node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_PASSWORD
+        value: admin123
+    plan: free
+    autoDeploy: true
