@@ -279,7 +279,7 @@ function ExportButton({ token, onImported }) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `qa-backup-${new Date().toISOString().slice(0, 10)}.zip`;
+      a.download = `qa-backup-${new Date().toISOString().slice(0, 10)}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -292,7 +292,7 @@ function ExportButton({ token, onImported }) {
 
   return (
     <button onClick={handleExport} className="px-4 py-2 bg-blue-900/60 hover:bg-blue-800 text-blue-200 border border-blue-700/60 text-xs font-mono rounded-xl flex items-center gap-2 transition-colors">
-      <Upload className="w-3.5 h-3.5" /> 匯出完整備份 (ZIP)
+      <Upload className="w-3.5 h-3.5" /> 匯出完整備份 (JSON)
     </button>
   );
 }
@@ -326,7 +326,7 @@ function ImportButton({ token, onImported }) {
   return (
     <label className="px-4 py-2 bg-green-900/60 hover:bg-green-800 text-green-200 border border-green-700/60 text-xs font-mono rounded-xl flex items-center gap-2 transition-colors cursor-pointer">
       <Upload className="w-3.5 h-3.5" /> 還原備份 (ZIP)
-      <input type="file" accept=".zip" onChange={handleImport} className="hidden" />
+      <input type="file" accept=".json,.zip" onChange={handleImport} className="hidden" />
     </label>
   );
 }

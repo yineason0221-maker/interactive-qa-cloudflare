@@ -495,15 +495,15 @@ async function handleExport(env) {
 
     const adminRow = await queryFirst(env, 'SELECT password_hash FROM admin WHERE id = ?', [1]);
     const exportData = {
-      version: '1.0',
+      version: '2.0',
       exportedAt: new Date().toISOString(),
       steps,
       settings,
+      mediaFiles: {},
       adminPasswordHash: adminRow ? adminRow.password_hash : ''
     };
 
-    const encryptedJson = encryptField(env, JSON.stringify(exportData, null, 2));
-    const jsonBytes = new TextEncoder().encode(encryptedJson);
+    const jsonBytes = new TextEncoder().encode(JSON.stringify(exportData, null, 2));
     return new Response(jsonBytes, {
       headers: corsHeaders({
         'Content-Type': 'application/json',
@@ -520,12 +520,29 @@ async function handleImportZip(env, request) {
   if (!auth.ok) return auth.response;
 
   try {
-    const body = await request.json();
-    if (!body || !body.steps || !Array.isArray(body.steps)) {
-      return errorResponse('Invalid backup format, please upload JSON file', 400);
+    let backupData;
+
+    const contentType = request.headers.get('content-type') || '';
+    if (contentType.includes('multipart/form-data')) {
+      const formData = await request.formData();
+      const backupFile = formData.get('backup');
+      if (!backupFile) {
+        return errorResponse('No file uploaded', 400);
+      }
+      const text = await backupFile.text();
+      try {
+        backupData = JSON.parse(text);
+      } catch {
+        return errorResponse('Invalid JSON file. Please upload a backup file exported from this app.', 400);
+      }
+    } else {
+      const body = await request.json();
+      backupData = body;
     }
 
-    const backupData = body;
+    if (!backupData || !backupData.steps || !Array.isArray(backupData.steps)) {
+      return errorResponse('Invalid backup format: missing steps array', 400);
+    }
 
     if (backupData.settings && typeof backupData.settings === 'object') {
       for (const [key, value] of Object.entries(backupData.settings)) {
@@ -547,7 +564,7 @@ async function handleImportZip(env, request) {
           step.id || null,
           idx,
           step.type || 'subtitle',
-          step.title || 'unnamedBJ',
+          step.title || 'Untitled Step',
           JSON.stringify(step.content || {})
         ]
       );
@@ -561,9 +578,10 @@ async function handleImportZip(env, request) {
       );
     }
 
+    const mediaCount = backupData.mediaFiles ? Object.keys(backupData.mediaFiles).length : 0;
     return jsonResponse({
       success: true,
-      message: `Imported ${backupData.steps.length} steps and settings`
+      message: `Imported ${backupData.steps.length} steps, ${Object.keys(backupData.settings || {}).length} settings${mediaCount > 0 ? `, ${mediaCount} media files` : ''}`
     });
   } catch (err) {
     return errorResponse('Import failed: ' + err.message, 500);
