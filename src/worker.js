@@ -221,12 +221,24 @@ async function initializeDatabase(env) {
   `);
 
   const ITERATIONS = 80000;
-  const adminRow = await queryFirst(env, 'SELECT id, password_hash FROM admin WHERE id = ?', [1]);
+  let adminRow = null;
+  try {
+    adminRow = await queryFirst(env, 'SELECT id, password_hash FROM admin WHERE id = ?', [1]);
+  } catch (e) {
+    console.error('[Init] Admin query failed, creating table:', e.message);
+  }
+
   const defaultPassword = env.ADMIN_PASSWORD || DEFAULT_ADMIN_PASSWORD;
   const newHash = crypto.pbkdf2Sync(defaultPassword, 'admin-salt', ITERATIONS, 32, 'sha256').toString('hex');
+
   if (!adminRow) {
-    await execute(env, 'INSERT INTO admin (id, password_hash) VALUES (?, ?)', [1, `pbkdf2$${ITERATIONS}$admin-salt$${newHash}`]);
-    console.log('[DB] Created admin with', ITERATIONS, 'iterations');
+    try {
+      await execute(env, 'INSERT OR REPLACE INTO admin (id, password_hash, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)', [1, `pbkdf2$${ITERATIONS}$admin-salt$${newHash}`]);
+      console.log('[DB] Created admin with', ITERATIONS, 'iterations');
+    } catch (e) {
+      console.error('[Init] Failed to insert admin:', e.message);
+      throw e;
+    }
   } else {
     const parsed = parseStoredPasswordHash(adminRow.password_hash);
     if (!parsed || parsed.iterations !== ITERATIONS) {
