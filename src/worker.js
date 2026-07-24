@@ -159,7 +159,8 @@ async function execute(env, sql, params = []) {
 async function ensureInitialized(env) {
   if (!initPromise) {
     initPromise = initializeDatabase(env).catch(err => {
-      console.error('[Init] Failed:', err);
+      console.error('[Init] Failed, will retry on next request:', err);
+      initPromise = null;
       return null;
     });
   }
@@ -325,7 +326,7 @@ async function handleLogin(env, request) {
   if (!password) return errorResponse('Password required', 400);
 
   const adminRow = await queryFirst(env, 'SELECT * FROM admin WHERE id = ?', [1]);
-  if (!adminRow) return errorResponse('System not configured', 500);
+  if (!adminRow) return errorResponse('Database not initialized. Please refresh the page to trigger auto-setup.', 500);
 
   const isValid = verifyPassword(password, adminRow.password_hash);
   if (!isValid) return errorResponse('Incorrect password~', 401);
