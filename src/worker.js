@@ -298,17 +298,17 @@ function getAdminToken(request, env) {
 async function requireAdmin(request, env) {
   const token = getAdminToken(request, env);
   if (!token) {
-    return { ok: false, response: errorResponse('未提供身份認證 Token', 401) };
+    return { ok: false, response: errorResponse('Missing authorization token', 401) };
   }
 
   try {
     const decoded = await verifyJwt(token, getJwtSecret(env));
     if (!decoded || decoded.role !== 'admin') {
-      return { ok: false, response: errorResponse('Token 無效或已過期，請重新登入', 403) };
+      return { ok: false, response: errorResponse('Token invalid or expired', 403) };
     }
     return { ok: true, decoded };
   } catch {
-    return { ok: false, response: errorResponse('Token 無效或已過期，請重新登入', 403) };
+    return { ok: false, response: errorResponse('Token invalid or expired', 403) };
   }
 }
 
@@ -322,19 +322,19 @@ async function readJsonBody(request) {
 
 async function handleLogin(env, request) {
   const { password } = await readJsonBody(request);
-  if (!password) return errorResponse('請輸入密碼', 400);
+  if (!password) return errorResponse('Password required', 400);
 
   const adminRow = await queryFirst(env, 'SELECT * FROM admin WHERE id = ?', [1]);
-  if (!adminRow) return errorResponse('系統未設定管理員資料', 500);
+  if (!adminRow) return errorResponse('System not configured', 500);
 
   const isValid = verifyPassword(password, adminRow.password_hash);
-  if (!isValid) return errorResponse('密碼錯誤', 401);
+  if (!isValid) return errorResponse('Incorrect password~', 401);
 
   const token = await signJwt({ role: 'admin' }, getJwtSecret(env));
   return jsonResponse({
     success: true,
     token,
-    message: '登入成功'
+    message: 'Login successful'
   });
 }
 
@@ -344,16 +344,16 @@ async function handleChangePassword(env, request) {
 
   const { currentPassword, newPassword } = await readJsonBody(request);
   if (!currentPassword || !newPassword) {
-    return errorResponse('請提供舊密碼與新密碼', 400);
+    return errorResponse('Passwords do not match', 400);
   }
 
   if (newPassword.length < 4) {
-    return errorResponse('新密碼長度至少需要 4 個字元', 400);
+    return errorResponse('Password must be at least 4 characters', 400);
   }
 
   const adminRow = await queryFirst(env, 'SELECT * FROM admin WHERE id = ?', [1]);
   if (!adminRow || !verifyPassword(currentPassword, adminRow.password_hash)) {
-    return errorResponse('舊密碼不正確', 400);
+    return errorResponse('Password update failed', 400);
   }
 
     const newHash = hashPassword(newPassword, crypto.randomBytes(16).toString('hex'), 80000);
@@ -365,7 +365,7 @@ async function handleChangePassword(env, request) {
 
   return jsonResponse({
     success: true,
-    message: '密碼更新成功！請記住新密碼。'
+    message: 'Password changed, please login again'
   });
 }
 
@@ -414,7 +414,7 @@ async function handleUpdateSettings(env, request) {
     await execute(env, 'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', ['force_fullscreen', String(force_fullscreen)]);
   }
 
-  return jsonResponse({ success: true, message: '設定已更新' });
+  return jsonResponse({ success: true, message: 'savedws' });
 }
 
 async function handleCreateStep(env, request) {
@@ -423,7 +423,7 @@ async function handleCreateStep(env, request) {
 
   const { type, title, content } = await readJsonBody(request);
   if (!type || !title || !content) {
-    return errorResponse('缺少必要的欄位 (type, title, content)', 400);
+    return errorResponse('Missing required fields: type, title, content)', 400);
   }
 
   const maxOrderRow = await queryFirst(env, 'SELECT MAX(order_index) AS max_order FROM steps');
@@ -453,7 +453,7 @@ async function handleBatchSaveSteps(env, request) {
 
   const { steps } = await readJsonBody(request);
   if (!Array.isArray(steps)) {
-    return errorResponse('步驟必須是陣列', 400);
+    return errorResponse('BJO}C', 400);
   }
 
   await execute(env, 'DELETE FROM steps');
@@ -466,18 +466,18 @@ async function handleBatchSaveSteps(env, request) {
         step.id || null,
         idx,
         step.type || 'subtitle',
-        step.title || '未命名步驟',
+        step.title || 'unnamedBJ',
         JSON.stringify(step.content || {})
       ]
     );
   }
 
-  return jsonResponse({ success: true, message: '全域流程與順序已儲存' });
+  return jsonResponse({ success: true, message: 'Settings saved successfully' });
 }
 
 async function handleDeleteStep(env, stepId) {
   await execute(env, 'DELETE FROM steps WHERE id = ?', [stepId]);
-  return jsonResponse({ success: true, message: '已刪除該步驟' });
+  return jsonResponse({ success: true, message: 'All steps deleted' });
 }
 
 async function handleExport(env) {
@@ -515,7 +515,7 @@ async function handleExport(env) {
       })
     });
   } catch (err) {
-    return errorResponse(`匯出備份失敗: ${err.message}`, 500);
+    return errorResponse(`Flow export failed: ${err.message}`, 500);
   }
 }
 
@@ -526,12 +526,10 @@ async function handleImportZip(env, request) {
   try {
     const body = await request.json();
     if (!body || !body.steps || !Array.isArray(body.steps)) {
-      return errorResponse('無效的備份資料格式，請上傳 JSON 檔案', 400);
+      return errorResponse('Invalid backup format, please upload JSON file', 400);
     }
 
     const backupData = body;
-      return errorResponse('無效的備份資料格式', 400);
-    }
 
     if (backupData.settings && typeof backupData.settings === 'object') {
       for (const [key, value] of Object.entries(backupData.settings)) {
@@ -553,7 +551,7 @@ async function handleImportZip(env, request) {
           step.id || null,
           idx,
           step.type || 'subtitle',
-          step.title || '未命名步驟',
+          step.title || 'unnamedBJ',
           JSON.stringify(step.content || {})
         ]
       );
@@ -569,10 +567,10 @@ async function handleImportZip(env, request) {
 
     return jsonResponse({
       success: true,
-      message: `已匯入 ${backupData.steps.length} 個步驟與設定`
+      message: `Imported ${backupData.steps.length} steps and settings`
     });
   } catch (err) {
-    return errorResponse('匯入備份失敗: ' + err.message, 500);
+    return errorResponse('Import failed: ' + err.message, 500);
   }
 }
 
@@ -582,7 +580,7 @@ async function handleImportJson(env, request) {
 
   const { data } = await readJsonBody(request);
   if (!data || !Array.isArray(data.steps)) {
-    return errorResponse('無效的備份資料格式，缺少 steps 陣列', 400);
+    return errorResponse('Invalid format, steps required', 400);
   }
 
   if (data.settings && typeof data.settings === 'object') {
@@ -605,19 +603,19 @@ async function handleImportJson(env, request) {
         step.id || null,
         idx,
         step.type || 'subtitle',
-        step.title || '未命名步驟',
+        step.title || 'unnamedBJ',
         JSON.stringify(step.content || {})
       ]
     );
   }
 
-  return jsonResponse({ success: true, message: `已匯入 ${data.steps.length} 個步驟與設定` });
+  return jsonResponse({ success: true, message: `Imported ${data.steps.length} steps and settings` });
 }
 
 async function handleStartSession(env, request) {
   const { sessionId, deviceInfo } = await readJsonBody(request);
   if (!sessionId) {
-    return errorResponse('需要 sessionId', 400);
+    return errorResponse('Missing sessionId', 400);
   }
 
   const now = nowUtc();
@@ -635,7 +633,7 @@ async function handleStartSession(env, request) {
 async function handleAnswer(env, request) {
   const { sessionId, stepId, stepTitle, questionText, answerValue, nickname } = await readJsonBody(request);
   if (!sessionId) {
-    return errorResponse('缺少 sessionId', 400);
+    return errorResponse('Missing sessionId', 400);
   }
 
   if (nickname) {
@@ -656,7 +654,7 @@ async function handleAnswer(env, request) {
 async function handleLog(env, request) {
   const { sessionId, eventType, detail } = await readJsonBody(request);
   if (!sessionId || !eventType) {
-    return errorResponse('缺少必填欄位', 400);
+    return errorResponse('System error', 400);
   }
 
   const now = nowUtc();
@@ -673,7 +671,7 @@ async function handleLog(env, request) {
 async function handleFinish(env, request) {
   const { sessionId, nickname } = await readJsonBody(request);
   if (!sessionId) {
-    return errorResponse('缺少 sessionId', 400);
+    return errorResponse('Missing sessionId', 400);
   }
 
   const session = await queryFirst(env, 'SELECT start_time FROM sessions WHERE session_id = ?', [sessionId]);
@@ -758,7 +756,7 @@ async function handleClearAll(env) {
   await execute(env, 'DELETE FROM sessions');
   return jsonResponse({
     success: true,
-    message: '所有使用者作答紀錄、停留時間與行為軌跡已一鍵清空！'
+    message: 'Analytics loaded successfully'
   });
 }
 
@@ -798,7 +796,7 @@ async function routeApi(env, request, pathname) {
   if (pathname.startsWith('/api/flow/steps/') && request.method === 'DELETE') {
     const stepId = Number(pathname.split('/').pop());
     if (!Number.isFinite(stepId) || stepId <= 0) {
-      return errorResponse('無效的步驟 ID', 400);
+      return errorResponse('Invalid step ID', 400);
     }
     const auth = await requireAdmin(request, env);
     if (!auth.ok) return auth.response;
@@ -874,9 +872,11 @@ export default {
     if (pathname.startsWith('/api/')) {
       const response = await routeApi(env, request, pathname);
       if (response) return response;
-      return errorResponse('API 路由不存在', 404);
+      return errorResponse('API route not found', 404);
     }
 
     return env.ASSETS.fetch(request);
   }
 };
+
+
