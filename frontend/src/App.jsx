@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import PlayerView from './components/PlayerView';
 import AdminModal from './components/AdminModal';
 

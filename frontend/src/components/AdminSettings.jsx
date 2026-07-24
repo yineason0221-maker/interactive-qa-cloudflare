@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { KeyRound, Upload, Music, Globe, Trash2, Plus } from 'lucide-react';
 
 export default function AdminSettings({ token, settings, onSettingsUpdated }) {

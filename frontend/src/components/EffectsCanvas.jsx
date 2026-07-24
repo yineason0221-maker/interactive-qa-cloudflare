@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import confetti from 'canvas-confetti';
 
 export default function EffectsCanvas({ effectType, duration = 3, onComplete }) {

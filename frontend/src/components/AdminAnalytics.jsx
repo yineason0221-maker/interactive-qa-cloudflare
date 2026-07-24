@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Trash2, RefreshCw, Clock, MessageSquare, Activity, User, AlertCircle } from 'lucide-react';
 
 export default function AdminAnalytics({ token }) {

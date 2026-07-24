@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Volume2, VolumeX, Music } from 'lucide-react';
 
 export default function AudioPlayer({ src, paused = false }) {

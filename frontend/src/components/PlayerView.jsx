@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import EffectsCanvas from './EffectsCanvas';
 import AudioPlayer from './AudioPlayer';
 import { Maximize, ChevronRight, CheckCircle2, RotateCcw } from 'lucide-react';
