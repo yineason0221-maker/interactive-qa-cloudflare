@@ -52,14 +52,9 @@ async function verifyJwt(token, secret) {
     false,
     ['verify']
   );
-  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(signingInput));
-  const expectedB64 = base64urlEncode(signature);
-  if (sigB64.length !== expectedB64.length) return null;
-  let diff = 0;
-  for (let i = 0; i < sigB64.length; i++) {
-    diff |= sigB64.charCodeAt(i) ^ expectedB64.charCodeAt(i);
-  }
-  if (diff !== 0) return null;
+  const signature = base64urlDecode(sigB64);
+  const valid = await crypto.subtle.verify('HMAC', key, signature, new TextEncoder().encode(signingInput));
+  if (!valid) return null;
   const payloadBytes = base64urlDecode(payloadB64);
   const payload = JSON.parse(new TextDecoder().decode(payloadBytes));
   if (payload.exp && Math.floor(Date.now() / 1000) > payload.exp) return null;
