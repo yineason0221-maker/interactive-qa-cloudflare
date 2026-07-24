@@ -480,7 +480,75 @@ async function handleBatchSaveSteps(env, request) {
 
 async function handleDeleteStep(env, stepId) {
   await execute(env, 'DELETE FROM steps WHERE id = ?', [stepId]);
-  return jsonResponse({ success: true, message: 'All steps deleted' });
+  return jsonResponse({ success: true, message: 'Step deleted' });
+}
+
+async function handleListMedia(env) {
+  const rows = await queryAll(env, 'SELECT filename, mime_type, length(data) as size, created_at FROM media_files ORDER BY created_at DESC');
+  const media = rows.map(row => ({
+    filename: row.filename,
+    mimeType: row.mime_type,
+    size: row.size,
+    createdAt: row.created_at,
+    url: `/api/media/${encodeURIComponent(row.filename)}`
+  }));
+  return jsonResponse({ success: true, media });
+}
+
+async function handleUploadMedia(env, request) {
+  const auth = await requireAdmin(request, env);
+  if (!auth.ok) return auth.response;
+
+  try {
+    const formData = await request.formData();
+    const file = formData.get('file');
+    if (!file || typeof file.arrayBuffer !== 'function') {
+      return errorResponse('No file uploaded', 400);
+    }
+
+    const filename = file.name || 'untitled';
+    const ext = filename.split('.').pop()?.toLowerCase() || '';
+    const isAudio = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac'].includes(ext);
+    const isVideo = ['mp4', 'webm', 'mov', 'avi', 'mkv'].includes(ext);
+    if (!isAudio && !isVideo) {
+      return errorResponse('Only audio and video files are allowed', 400);
+    }
+
+    const mimeType = file.type || (isAudio ? 'audio/mpeg' : 'video/mp4');
+    const buffer = await file.arrayBuffer();
+    const base64 = arrayBufferToBase64(buffer);
+
+    await execute(
+      env,
+      'INSERT INTO media_files (filename, mime_type, data) VALUES (?, ?, ?) ON CONFLICT(filename) DO UPDATE SET mime_type = excluded.mime_type, data = excluded.data',
+      [filename, mimeType, base64]
+    );
+
+    return jsonResponse({
+      success: true,
+      message: `Uploaded ${filename}`,
+      media: { filename, mimeType, url: `/api/media/${encodeURIComponent(filename)}` }
+    });
+  } catch (err) {
+    return errorResponse('Upload failed: ' + err.message, 500);
+  }
+}
+
+async function handleDeleteMedia(env, request, filename) {
+  const auth = await requireAdmin(request, env);
+  if (!auth.ok) return auth.response;
+
+  await execute(env, 'DELETE FROM media_files WHERE filename = ?', [filename]);
+  return jsonResponse({ success: true, message: `Deleted ${filename}` });
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
 }
 
 async function handleExport(env) {
@@ -535,23 +603,25 @@ async function handleImportZip(env, request) {
 
   try {
     let backupData;
-
     const contentType = request.headers.get('content-type') || '';
+
     if (contentType.includes('multipart/form-data')) {
       const formData = await request.formData();
       const backupFile = formData.get('backup');
-      if (!backupFile) {
-        return errorResponse('No file uploaded', 400);
-      }
+      if (!backupFile) return errorResponse('No file uploaded', 400);
       const text = await backupFile.text();
       try {
         backupData = JSON.parse(text);
-      } catch {
-        return errorResponse('Invalid JSON file. Please upload a backup file exported from this app.', 400);
+      } catch (parseErr) {
+        const preview = text.slice(0, 80);
+        return errorResponse(`Invalid JSON: ${parseErr.message}. File preview: ${preview}`, 400);
       }
     } else {
-      const body = await request.json();
-      backupData = body;
+      try {
+        backupData = await request.json();
+      } catch (jsonErr) {
+        return errorResponse(`Request body is not valid JSON: ${jsonErr.message}`, 400);
+      }
     }
 
     if (!backupData || !backupData.steps || !Array.isArray(backupData.steps)) {
@@ -851,6 +921,23 @@ async function routeApi(env, request, pathname) {
 
   if (pathname === '/api/flow/import-zip' && request.method === 'POST') {
     return handleImportZip(env, request);
+  }
+
+  if (pathname === '/api/admin/media' && request.method === 'GET') {
+    const auth = await requireAdmin(request, env);
+    if (!auth.ok) return auth.response;
+    return handleListMedia(env);
+  }
+
+  if (pathname === '/api/admin/media' && request.method === 'POST') {
+    return handleUploadMedia(env, request);
+  }
+
+  if (pathname.startsWith('/api/admin/media/') && request.method === 'DELETE') {
+    const auth = await requireAdmin(request, env);
+    if (!auth.ok) return auth.response;
+    const filename = decodeURIComponent(pathname.slice('/api/admin/media/'.length));
+    return handleDeleteMedia(env, request, filename);
   }
 
   if (pathname === '/api/flow/import' && request.method === 'POST') {

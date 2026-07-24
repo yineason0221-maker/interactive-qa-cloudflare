@@ -593,7 +593,7 @@ export default function AdminFlowEditor({ token, steps: initialSteps, onSaveSucc
                       className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-white"
                     />
                     <p className="text-[10px] text-zinc-500 mt-1 font-mono">
-                      可把 MP4 放到 frontend/public/uploads/ 後使用 /uploads/影片檔名.mp4，或直接貼外部連結。
+                      可將檔案上傳至後台媒體庫後使用 /api/media/影片檔名.mp4，或直接貼外部連結。
                     </p>
                   </div>
 
