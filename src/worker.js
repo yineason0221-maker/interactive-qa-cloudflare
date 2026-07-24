@@ -1,12 +1,70 @@
-ï»¿import crypto from 'node:crypto';
+import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-import AdmZip from 'adm-zip';
 import { DEFAULT_ADMIN_PASSWORD, DEFAULT_SETTINGS, DEFAULT_STEPS } from './defaults.js';
 
 const JWT_SECRET_FALLBACK = 'qa-interactive-admin-secret-key-2025';
 const BACKUP_SECRET_FALLBACK = 'default-backup-encryption-key';
 const TOKEN_TTL = '7d';
+
+function base64urlEncode(buffer) {
+  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function base64urlDecode(str) {
+  let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (base64.length % 4) base64 += '=';
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+async function signJwt(payload, secret) {
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const headerB64 = base64urlEncode(new TextEncoder().encode(JSON.stringify(header)));
+  const now = Math.floor(Date.now() / 1000);
+  const ttlSeconds = TOKEN_TTL === '7d' ? 7 * 24 * 60 * 60 : 3600;
+  const fullPayload = { ...payload, iat: now, exp: now + ttlSeconds };
+  const payloadB64 = base64urlEncode(new TextEncoder().encode(JSON.stringify(fullPayload)));
+  const signingInput = `${headerB64}.${payloadB64}`;
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(signingInput));
+  const sigB64 = base64urlEncode(signature);
+  return `${signingInput}.${sigB64}`;
+}
+
+async function verifyJwt(token, secret) {
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  const [headerB64, payloadB64, sigB64] = parts;
+  const signingInput = `${headerB64}.${payloadB64}`;
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['verify']
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(signingInput));
+  const expectedB64 = base64urlEncode(signature);
+  if (sigB64.length !== expectedB64.length) return null;
+  let diff = 0;
+  for (let i = 0; i < sigB64.length; i++) {
+    diff |= sigB64.charCodeAt(i) ^ expectedB64.charCodeAt(i);
+  }
+  if (diff !== 0) return null;
+  const payloadBytes = base64urlDecode(payloadB64);
+  const payload = JSON.parse(new TextDecoder().decode(payloadBytes));
+  if (payload.exp && Math.floor(Date.now() / 1000) > payload.exp) return null;
+  return payload;
+}
 
 let initPromise = null;
 
@@ -100,7 +158,10 @@ async function execute(env, sql, params = []) {
 
 async function ensureInitialized(env) {
   if (!initPromise) {
-    initPromise = initializeDatabase(env);
+    initPromise = initializeDatabase(env).catch(err => {
+      console.error('[Init] Failed:', err);
+      return null;
+    });
   }
   await initPromise;
 }
@@ -234,20 +295,20 @@ function getAdminToken(request, env) {
   return header.startsWith('Bearer ') ? header.slice(7) : header;
 }
 
-function requireAdmin(request, env) {
+async function requireAdmin(request, env) {
   const token = getAdminToken(request, env);
   if (!token) {
-    return { ok: false, response: errorResponse('æœªæä¾›èº«ä»½èªè­‰ Token', 401) };
+    return { ok: false, response: errorResponse('¥¼´£¨Ñ¨­¥÷»{ÃÒ Token', 401) };
   }
 
   try {
-    const decoded = jwt.verify(token, getJwtSecret(env));
+    const decoded = await verifyJwt(token, getJwtSecret(env));
     if (!decoded || decoded.role !== 'admin') {
-      return { ok: false, response: errorResponse('Token ç„¡æ•ˆæˆ–å·²éæœŸï¼Œè«‹é‡æ–°ç™»å…¥', 403) };
+      return { ok: false, response: errorResponse('Token µL®Ä©Î¤w¹L´Á¡A½Ğ­«·sµn¤J', 403) };
     }
     return { ok: true, decoded };
   } catch {
-    return { ok: false, response: errorResponse('Token ç„¡æ•ˆæˆ–å·²éæœŸï¼Œè«‹é‡æ–°ç™»å…¥', 403) };
+    return { ok: false, response: errorResponse('Token µL®Ä©Î¤w¹L´Á¡A½Ğ­«·sµn¤J', 403) };
   }
 }
 
@@ -261,38 +322,38 @@ async function readJsonBody(request) {
 
 async function handleLogin(env, request) {
   const { password } = await readJsonBody(request);
-  if (!password) return errorResponse('è«‹è¼¸å…¥å¯†ç¢¼', 400);
+  if (!password) return errorResponse('½Ğ¿é¤J±K½X', 400);
 
   const adminRow = await queryFirst(env, 'SELECT * FROM admin WHERE id = ?', [1]);
-  if (!adminRow) return errorResponse('ç³»çµ±æœªè¨­å®šç®¡ç†å“¡è³‡æ–™', 500);
+  if (!adminRow) return errorResponse('¨t²Î¥¼³]©wºŞ²z­û¸ê®Æ', 500);
 
   const isValid = verifyPassword(password, adminRow.password_hash);
-  if (!isValid) return errorResponse('å¯†ç¢¼éŒ¯èª¤', 401);
+  if (!isValid) return errorResponse('±K½X¿ù»~', 401);
 
-  const token = jwt.sign({ role: 'admin' }, getJwtSecret(env), { expiresIn: TOKEN_TTL });
+  const token = await signJwt({ role: 'admin' }, getJwtSecret(env));
   return jsonResponse({
     success: true,
     token,
-    message: 'ç™»å…¥æˆåŠŸ'
+    message: 'µn¤J¦¨¥\'
   });
 }
 
 async function handleChangePassword(env, request) {
-  const auth = requireAdmin(request, env);
+  const auth = await requireAdmin(request, env);
   if (!auth.ok) return auth.response;
 
   const { currentPassword, newPassword } = await readJsonBody(request);
   if (!currentPassword || !newPassword) {
-    return errorResponse('è«‹æä¾›èˆŠå¯†ç¢¼èˆ‡æ–°å¯†ç¢¼', 400);
+    return errorResponse('½Ğ´£¨ÑÂÂ±K½X»P·s±K½X', 400);
   }
 
   if (newPassword.length < 4) {
-    return errorResponse('æ–°å¯†ç¢¼é•·åº¦è‡³å°‘éœ€è¦ 4 å€‹å­—å…ƒ', 400);
+    return errorResponse('·s±K½Xªø«×¦Ü¤Ö»İ­n 4 ­Ó¦r¤¸', 400);
   }
 
   const adminRow = await queryFirst(env, 'SELECT * FROM admin WHERE id = ?', [1]);
   if (!adminRow || !verifyPassword(currentPassword, adminRow.password_hash)) {
-    return errorResponse('èˆŠå¯†ç¢¼ä¸æ­£ç¢º', 400);
+    return errorResponse('ÂÂ±K½X¤£¥¿½T', 400);
   }
 
     const newHash = hashPassword(newPassword, crypto.randomBytes(16).toString('hex'), 80000);
@@ -304,7 +365,7 @@ async function handleChangePassword(env, request) {
 
   return jsonResponse({
     success: true,
-    message: 'å¯†ç¢¼æ›´æ–°æˆåŠŸï¼è«‹è¨˜ä½æ–°å¯†ç¢¼ã€‚'
+    message: '±K½X§ó·s¦¨¥\¡I½Ğ°O¦í·s±K½X¡C'
   });
 }
 
@@ -334,7 +395,7 @@ async function handleGetSettings(env) {
 }
 
 async function handleUpdateSettings(env, request) {
-  const auth = requireAdmin(request, env);
+  const auth = await requireAdmin(request, env);
   if (!auth.ok) return auth.response;
 
   const body = await readJsonBody(request);
@@ -353,16 +414,16 @@ async function handleUpdateSettings(env, request) {
     await execute(env, 'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', ['force_fullscreen', String(force_fullscreen)]);
   }
 
-  return jsonResponse({ success: true, message: 'è¨­å®šå·²æ›´æ–°' });
+  return jsonResponse({ success: true, message: '³]©w¤w§ó·s' });
 }
 
 async function handleCreateStep(env, request) {
-  const auth = requireAdmin(request, env);
+  const auth = await requireAdmin(request, env);
   if (!auth.ok) return auth.response;
 
   const { type, title, content } = await readJsonBody(request);
   if (!type || !title || !content) {
-    return errorResponse('ç¼ºå°‘å¿…è¦çš„æ¬„ä½ (type, title, content)', 400);
+    return errorResponse('¯Ê¤Ö¥²­nªºÄæ¦ì (type, title, content)', 400);
   }
 
   const maxOrderRow = await queryFirst(env, 'SELECT MAX(order_index) AS max_order FROM steps');
@@ -387,12 +448,12 @@ async function handleCreateStep(env, request) {
 }
 
 async function handleBatchSaveSteps(env, request) {
-  const auth = requireAdmin(request, env);
+  const auth = await requireAdmin(request, env);
   if (!auth.ok) return auth.response;
 
   const { steps } = await readJsonBody(request);
   if (!Array.isArray(steps)) {
-    return errorResponse('æ­¥é©Ÿå¿…é ˆæ˜¯é™£åˆ—', 400);
+    return errorResponse('¨BÆJ¥²¶·¬O°}¦C', 400);
   }
 
   await execute(env, 'DELETE FROM steps');
@@ -405,18 +466,18 @@ async function handleBatchSaveSteps(env, request) {
         step.id || null,
         idx,
         step.type || 'subtitle',
-        step.title || 'æœªå‘½åæ­¥é©Ÿ',
+        step.title || '¥¼©R¦W¨BÆJ',
         JSON.stringify(step.content || {})
       ]
     );
   }
 
-  return jsonResponse({ success: true, message: 'å…¨åŸŸæµç¨‹èˆ‡é †åºå·²å„²å­˜' });
+  return jsonResponse({ success: true, message: '¥ş°ì¬yµ{»P¶¶§Ç¤wÀx¦s' });
 }
 
 async function handleDeleteStep(env, stepId) {
   await execute(env, 'DELETE FROM steps WHERE id = ?', [stepId]);
-  return jsonResponse({ success: true, message: 'å·²åˆªé™¤è©²æ­¥é©Ÿ' });
+  return jsonResponse({ success: true, message: '¤w§R°£¸Ó¨BÆJ' });
 }
 
 async function handleExport(env) {
@@ -445,60 +506,31 @@ async function handleExport(env) {
       adminPasswordHash: adminRow ? adminRow.password_hash : ''
     };
 
-    const zip = new AdmZip();
-    const jsonBuffer = Buffer.from(JSON.stringify(exportData, null, 2), 'utf8');
-    const encryptedJson = encryptField(env, jsonBuffer.toString('utf8'));
-    zip.addFile('backup.json.enc', Buffer.from(encryptedJson, 'utf8'));
-
-    const zipBuffer = zip.toBuffer();
-    return new Response(zipBuffer, {
+    const encryptedJson = encryptField(env, JSON.stringify(exportData, null, 2));
+    const jsonBytes = new TextEncoder().encode(encryptedJson);
+    return new Response(jsonBytes, {
       headers: corsHeaders({
-        'Content-Type': 'application/zip',
-        'Content-Disposition': `attachment; filename=qa-backup-${new Date().toISOString().slice(0, 10)}.zip`
+        'Content-Type': 'application/json',
+        'Content-Disposition': `attachment; filename=qa-backup-${new Date().toISOString().slice(0, 10)}.json`
       })
     });
   } catch (err) {
-    return errorResponse(`åŒ¯å‡ºå‚™ä»½å¤±æ•—: ${err.message}`, 500);
+    return errorResponse(`¶×¥X³Æ¥÷¥¢±Ñ: ${err.message}`, 500);
   }
 }
 
 async function handleImportZip(env, request) {
-  const auth = requireAdmin(request, env);
+  const auth = await requireAdmin(request, env);
   if (!auth.ok) return auth.response;
 
-  const form = await request.formData();
-  const backupFile = form.get('backup');
-  if (!backupFile || typeof backupFile.arrayBuffer !== 'function') {
-    return errorResponse('è«‹é¸æ“‡å‚™ä»½ zip æª”æ¡ˆ', 400);
-  }
-
   try {
-    const zipBuffer = Buffer.from(await backupFile.arrayBuffer());
-    const zip = new AdmZip(zipBuffer);
-    const entries = zip.getEntries();
-
-    const backupEntry = entries.find(entry => {
-      const name = entry.entryName.replace(/^\.\//, '').split('/').pop();
-      return !entry.isDirectory && (name === 'backup.json' || name === 'backup.json.enc');
-    });
-
-    if (!backupEntry) {
-      const names = entries.map(entry => entry.entryName).join(', ');
-      return errorResponse(`å‚™ä»½æª”æ¡ˆä¸­ç¼ºå°‘ backup.jsonï¼Œzip å…§å®¹: ${names}`, 400);
+    const body = await request.json();
+    if (!body || !body.steps || !Array.isArray(body.steps)) {
+      return errorResponse('µL®Äªº³Æ¥÷¸ê®Æ®æ¦¡¡A½Ğ¤W¶Ç JSON ÀÉ®×', 400);
     }
 
-    let backupData;
-    const entryName = backupEntry.entryName.replace(/^\.\//, '').split('/').pop();
-    const rawContent = backupEntry.getData().toString('utf8');
-    if (entryName === 'backup.json.enc') {
-      const decrypted = decryptField(env, rawContent);
-      backupData = JSON.parse(decrypted);
-    } else {
-      backupData = JSON.parse(rawContent);
-    }
-
-    if (!backupData.steps || !Array.isArray(backupData.steps)) {
-      return errorResponse('ç„¡æ•ˆçš„å‚™ä»½è³‡æ–™æ ¼å¼', 400);
+    const backupData = body;
+      return errorResponse('µL®Äªº³Æ¥÷¸ê®Æ®æ¦¡', 400);
     }
 
     if (backupData.settings && typeof backupData.settings === 'object') {
@@ -521,7 +553,7 @@ async function handleImportZip(env, request) {
           step.id || null,
           idx,
           step.type || 'subtitle',
-          step.title || 'æœªå‘½åæ­¥é©Ÿ',
+          step.title || '¥¼©R¦W¨BÆJ',
           JSON.stringify(step.content || {})
         ]
       );
@@ -537,20 +569,20 @@ async function handleImportZip(env, request) {
 
     return jsonResponse({
       success: true,
-      message: `å·²åŒ¯å…¥ ${backupData.steps.length} å€‹æ­¥é©Ÿèˆ‡è¨­å®š`
+      message: `¤w¶×¤J ${backupData.steps.length} ­Ó¨BÆJ»P³]©w`
     });
   } catch (err) {
-    return errorResponse('åŒ¯å…¥å‚™ä»½å¤±æ•—: ' + err.message, 500);
+    return errorResponse('¶×¤J³Æ¥÷¥¢±Ñ: ' + err.message, 500);
   }
 }
 
 async function handleImportJson(env, request) {
-  const auth = requireAdmin(request, env);
+  const auth = await requireAdmin(request, env);
   if (!auth.ok) return auth.response;
 
   const { data } = await readJsonBody(request);
   if (!data || !Array.isArray(data.steps)) {
-    return errorResponse('ç„¡æ•ˆçš„å‚™ä»½è³‡æ–™æ ¼å¼ï¼Œç¼ºå°‘ steps é™£åˆ—', 400);
+    return errorResponse('µL®Äªº³Æ¥÷¸ê®Æ®æ¦¡¡A¯Ê¤Ö steps °}¦C', 400);
   }
 
   if (data.settings && typeof data.settings === 'object') {
@@ -573,19 +605,19 @@ async function handleImportJson(env, request) {
         step.id || null,
         idx,
         step.type || 'subtitle',
-        step.title || 'æœªå‘½åæ­¥é©Ÿ',
+        step.title || '¥¼©R¦W¨BÆJ',
         JSON.stringify(step.content || {})
       ]
     );
   }
 
-  return jsonResponse({ success: true, message: `å·²åŒ¯å…¥ ${data.steps.length} å€‹æ­¥é©Ÿèˆ‡è¨­å®š` });
+  return jsonResponse({ success: true, message: `¤w¶×¤J ${data.steps.length} ­Ó¨BÆJ»P³]©w` });
 }
 
 async function handleStartSession(env, request) {
   const { sessionId, deviceInfo } = await readJsonBody(request);
   if (!sessionId) {
-    return errorResponse('éœ€è¦ sessionId', 400);
+    return errorResponse('»İ­n sessionId', 400);
   }
 
   const now = nowUtc();
@@ -603,7 +635,7 @@ async function handleStartSession(env, request) {
 async function handleAnswer(env, request) {
   const { sessionId, stepId, stepTitle, questionText, answerValue, nickname } = await readJsonBody(request);
   if (!sessionId) {
-    return errorResponse('ç¼ºå°‘ sessionId', 400);
+    return errorResponse('¯Ê¤Ö sessionId', 400);
   }
 
   if (nickname) {
@@ -624,7 +656,7 @@ async function handleAnswer(env, request) {
 async function handleLog(env, request) {
   const { sessionId, eventType, detail } = await readJsonBody(request);
   if (!sessionId || !eventType) {
-    return errorResponse('ç¼ºå°‘å¿…å¡«æ¬„ä½', 400);
+    return errorResponse('¯Ê¤Ö¥²¶ñÄæ¦ì', 400);
   }
 
   const now = nowUtc();
@@ -641,7 +673,7 @@ async function handleLog(env, request) {
 async function handleFinish(env, request) {
   const { sessionId, nickname } = await readJsonBody(request);
   if (!sessionId) {
-    return errorResponse('ç¼ºå°‘ sessionId', 400);
+    return errorResponse('¯Ê¤Ö sessionId', 400);
   }
 
   const session = await queryFirst(env, 'SELECT start_time FROM sessions WHERE session_id = ?', [sessionId]);
@@ -726,7 +758,7 @@ async function handleClearAll(env) {
   await execute(env, 'DELETE FROM sessions');
   return jsonResponse({
     success: true,
-    message: 'æ‰€æœ‰ä½¿ç”¨è€…ä½œç­”ç´€éŒ„ã€åœç•™æ™‚é–“èˆ‡è¡Œç‚ºè»Œè·¡å·²ä¸€éµæ¸…ç©ºï¼'
+    message: '©Ò¦³¨Ï¥ÎªÌ§@µª¬ö¿ı¡B°±¯d®É¶¡»P¦æ¬°­y¸ñ¤w¤@Áä²MªÅ¡I'
   });
 }
 
@@ -766,15 +798,15 @@ async function routeApi(env, request, pathname) {
   if (pathname.startsWith('/api/flow/steps/') && request.method === 'DELETE') {
     const stepId = Number(pathname.split('/').pop());
     if (!Number.isFinite(stepId) || stepId <= 0) {
-      return errorResponse('ç„¡æ•ˆçš„æ­¥é©Ÿ ID', 400);
+      return errorResponse('µL®Äªº¨BÆJ ID', 400);
     }
-    const auth = requireAdmin(request, env);
+    const auth = await requireAdmin(request, env);
     if (!auth.ok) return auth.response;
     return handleDeleteStep(env, stepId);
   }
 
   if (pathname === '/api/flow/export' && request.method === 'GET') {
-    const auth = requireAdmin(request, env);
+    const auth = await requireAdmin(request, env);
     if (!auth.ok) return auth.response;
     return handleExport(env);
   }
@@ -804,19 +836,19 @@ async function routeApi(env, request, pathname) {
   }
 
   if (pathname === '/api/responses/analytics' && request.method === 'GET') {
-    const auth = requireAdmin(request, env);
+    const auth = await requireAdmin(request, env);
     if (!auth.ok) return auth.response;
     return handleAnalytics(env);
   }
 
   if (pathname === '/api/responses/incomplete' && request.method === 'GET') {
-    const auth = requireAdmin(request, env);
+    const auth = await requireAdmin(request, env);
     if (!auth.ok) return auth.response;
     return handleIncomplete(env);
   }
 
   if (pathname === '/api/responses/clear-all' && request.method === 'DELETE') {
-    const auth = requireAdmin(request, env);
+    const auth = await requireAdmin(request, env);
     if (!auth.ok) return auth.response;
     return handleClearAll(env);
   }
@@ -842,7 +874,7 @@ export default {
     if (pathname.startsWith('/api/')) {
       const response = await routeApi(env, request, pathname);
       if (response) return response;
-      return errorResponse('API è·¯ç”±ä¸å­˜åœ¨', 404);
+      return errorResponse('API ¸ô¥Ñ¤£¦s¦b', 404);
     }
 
     return env.ASSETS.fetch(request);
